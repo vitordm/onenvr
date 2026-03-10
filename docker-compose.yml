@@ -2,7 +2,7 @@ services:
   onenvr:
     container_name: onenvr
     hostname: onenvr
-    image: cyb3rdoc/onenvr:latest
+    image: drprash/onenvr:latest
     ports:
       - "80:5000"
     volumes:

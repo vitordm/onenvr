@@ -5,73 +5,152 @@
 [![Size](https://img.shields.io/docker/image-size/cyb3rdoc/onenvr/latest?sort=semver&labelColor-555555&color-007EC6&style=flat-square)](https://hub.docker.com/r/cyb3rdoc/onenvr)
 [![Pulls](https://img.shields.io/docker/pulls/cyb3rdoc/onenvr?labelColor-555555&color-007EC6&style=flat-square)](https://hub.docker.com/r/cyb3rdoc/onenvr)
 
-This is a simple and lightweight Network Video Recorder (NVR) that is designed to run on cheap hardware, such as a Raspberry Pi with a hard drive. 24/7 video streams from network cameras are saved. Recorded files can be browsed through native web interface.
+A lightweight, self-hosted Network Video Recorder (NVR) designed to run on modest hardware such as a Raspberry Pi with an attached drive. Records 24/7 RTSP streams from network cameras into segmented files with a built-in web interface for browsing, playback, and management.
 
 ![Web Interface](/images/web-interface.png)
 
-The project is deliberately bare-bones, configuration is done through `config.yaml` file and deployed using docker containerization.
+## Features
 
-The camera video streams are saved in 5 minute files (to prevent long periods of video loss should a file become corrupted). At 02:00 UTC, the video files for the previous day are concatenated into a single 24 hour file, and the 5 minute video files are deleted. The concatenation is performed in a way to prevent disk I/O exhaustion and impact on ongoing recording. At 01:00 UTC, the video files older than 7 days are deleted. With local timezone environment variable, the concatenation and deletion tasks will be performed at local time 02:00 and 01:00 respectively. Period of retention, concatenation and deletion times can be configured with `config.yaml` file.
+- **Multi-camera recording** — any number of RTSP cameras, each in its own storage directory
+- **Segmented recording** — streams are saved in configurable-length segments (default 5 min) to limit data loss from file corruption
+- **Auto-restart** — recording resumes automatically after unexpected interruptions
+- **Manual start/stop** — per-camera controls in the dashboard; manual stop suppresses auto-restart until the camera is manually started again
+- **Hot-reload config** — camera and settings changes apply within seconds without restarting the container
+- **Daily concatenation** — optional job merges previous-day segments into a single file and removes the originals
+- **Retention cleanup** — old recordings are deleted automatically based on configured retention days
+- **Dark web UI** — dashboard, recordings browser with inline video player, camera management, and settings
+- **Login with password reset** — credentials persist across container rebuilds; locked-out reset is file-based (admin access only for security reasons)
 
-`ffmpeg` is used to connect to the camera streams and save the video feeds. Recording will restart automatically in case of unexpected interruption.
+## Deployment
 
-## Configuration Options
-1. Use `TZ=America/New_York` environment variable in `docker run` command or `docker-compose.yml` file to have filenames in local timezone of New York.
-2. The length of video segments from live streams can be configured by updating `interval: 300` to desired value in seconds (minimum 60) in `config.yaml` file. (Optional)
-3. Any codec supported by `ffmpeg` can be used (E.g., libx264) instead of default (and recommended) `codec: copy` however this will depend on hardware capabilities and increase processing strain for system.
-4. Set retention period of video files by updating `retention_days: 7` to your desired days in `config.yaml` file. (Optional)
-5. Disable concatenation of short video clips to single video file by setting `concatenation: false` in `config.yaml` file. (Optional)
-6. Time to run concatenation can be set by updating `concatenation_time: "02:00"` to desired time. (Optional)
-7. Time to run deletion of old recordings can be set by updating `deletion_time: "01:00"` to desired time. (Optional)
-8. For password protected RTSP camera streams, you need pass the argument in RTSP URL configuration. The URL might vary based on your camera. E.g., `rtsp://user:password@camera-ip/live/stream_01`
-9. Logs can be accessed in native docker logs with command `docker logs onenvr`. For detailed logs, use docker environment variable `DEBUG=true` in `docker run` command or `docker-compose.yml` file.
+### docker-compose (recommended)
 
-## User authentication for web interface
-1. During first use of web interface, you need to set username and password to access the web interface.
-2. Only a server administrator with SSH or direct access to OneNVR mountpoints can reset the password using `Forgot Password` option.
-3. Use password reset key stored at `/config` mountpoint to set a new password.
-
-![Web Interface](/images/web-login.png)
-
-## Build image using Dockerfile
-
-Clone the repo to build your own image.
-
-```
-TIMESTAMP="$(date '+%Y%m%d-%H%M')"
-
-docker build -t "${USER?}/onenvr:${TIMESTAMP}" .
-```
-
-Run onenvr docker container:
-```
-docker run -d --name onenvr -p 80:5000 -v /path/to/onenvr/config:/config -v /path/to/onenvr/storage:/storage your_username/onenvr:YYYYMMDD-HHMM
-```
-
-Mount following volumes to update camera settings and access or backup stored video files.
-1. /config - For NVR configuration
-2. /storage - For recorded videos
-
-## Using docker-compose.yml
-
-You can also use prebuilt image cyb3rdoc/onenvr:latest with docker-compose.yml.
-```
+```yaml
 services:
   onenvr:
     container_name: onenvr
     hostname: onenvr
-    image: cyb3rdoc/onenvr:latest
+    image: drprash/onenvr:latest
     ports:
       - "80:5000"
-    environment:
-      - TZ=America/New_York
-      - DEBUG=false
     volumes:
       - /path/to/onenvr/config:/config
       - /path/to/onenvr/storage:/storage
+    environment:
+      - TZ=America/New_York
+      - DEBUG=false
     restart: unless-stopped
-
 ```
 
-## NVR Logs
-Logs can be accessed with `docker logs onenvr`. For detailed logs, use docker environment variable `DEBUG=true` in `docker run` command or `docker-compose.yml` file.
+### docker run
+
+```bash
+docker run -d --name onenvr \
+  -p 80:5000 \
+  -v /path/to/onenvr/config:/config \
+  -v /path/to/onenvr/storage:/storage \
+  -e TZ=America/New_York \
+  drprash/onenvr:latest
+```
+
+### Volumes
+
+| Mount | Purpose |
+|-------|---------|
+| `/config` | `config.yaml`, credentials, and reset key |
+| `/storage` | Recorded video files |
+
+## Configuration
+
+Camera and system settings are managed through the web interface or by editing `/config/config.yaml` directly. Changes are picked up automatically within a few seconds — no container restart needed.
+
+### config.yaml structure
+
+```yaml
+cameras:
+  - name: frontdoor
+    rtsp_url: rtsp://user:password@192.168.1.10:554/stream1
+    codec: copy
+    interval: 300
+
+  - name: backyard
+    rtsp_url: rtsp://192.168.1.11:554/live
+    codec: copy
+    interval: 300
+
+retention_days: 7
+concatenation: true
+concatenation_time: "02:00"
+deletion_time: "01:00"
+```
+
+### Options
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `cameras[].name` | — | Unique camera identifier (alphanumeric, `-`, `_`). Used as the storage folder name. |
+| `cameras[].rtsp_url` | — | Full RTSP URL including credentials if required. |
+| `cameras[].codec` | `copy` | FFmpeg codec. `copy` (recommended) passes through the stream without re-encoding. Any FFmpeg-supported codec works. |
+| `cameras[].interval` | `300` | Segment length in seconds (minimum 60). |
+| `retention_days` | `7` | Recordings older than this are deleted by the daily cleanup job. |
+| `concatenation` | `true` | Merge previous-day segments into a single file at `concatenation_time`. |
+| `concatenation_time` | `02:00` | Time to run daily concatenation (24-hour HH:MM, local timezone). |
+| `deletion_time` | `01:00` | Time to run daily cleanup (24-hour HH:MM, local timezone). |
+
+Set the `TZ` environment variable to run scheduled jobs in your local timezone (e.g. `TZ=America/New_York`).
+
+## Web Interface
+
+Access the UI at `http://<host>:80` (or whichever port you mapped).
+
+| Page | Path | Description |
+|------|------|-------------|
+| Dashboard | `/` | Camera health, disk usage, per-camera start/stop |
+| Recordings | `/recordings` | Browse footage by camera → date → file; inline video player |
+| Cameras | `/cameras` | Add, edit, and delete camera configurations |
+| Settings | `/settings` | Retention, concatenation schedule, change password |
+
+The dashboard polls for live status every 8 seconds and updates camera badges and buttons without a page reload.
+
+## Authentication
+
+On first access, create a username and password through the web interface. Credentials are stored in `/config/auth.dat` and persist across container rebuilds as long as the `/config` volume is preserved.
+
+### Change password
+
+Go to **Settings → Change Password** while logged in.
+
+### Locked out / forgot password
+
+1. Visit `/forgot_password` — a reset key is written to `/config/password_reset.key`.
+2. Retrieve the key from the host (requires filesystem access):
+   ```bash
+   docker exec <container_name> cat /config/password_reset.key
+   ```
+3. Visit `/reset_password`, enter the key, and set a new password.
+
+This flow is intentionally file-based so that only a server administrator can reset a lost password.
+
+## Building from source
+
+```bash
+git clone https://github.com/drprash/onenvr.git
+cd onenvr
+
+TIMESTAMP="$(date '+%Y%m%d-%H%M')"
+docker build -t "${USER}/onenvr:${TIMESTAMP}" .
+
+docker run -d --name onenvr \
+  -p 80:5000 \
+  -v /path/to/config:/config \
+  -v /path/to/storage:/storage \
+  "${USER}/onenvr:${TIMESTAMP}"
+```
+
+## Logs
+
+```bash
+docker logs onenvr
+```
+
+For verbose output, set `DEBUG=true` in your environment variables.

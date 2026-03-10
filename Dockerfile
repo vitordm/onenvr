@@ -1,6 +1,6 @@
 FROM python:alpine
 
-LABEL author="cyb3rdoc" maintainer="cyb3rdoc@proton.me"
+LABEL author="drprash" maintainer="wolfa1fa@proton.me"
 
 # Install ffmpeg and other dependencies
 RUN apk update \

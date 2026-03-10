@@ -32,24 +32,25 @@ def check_ffmpeg_processes():
 
 def check_camera_recordings():
     """Check if cameras are actively recording (recent files exist)"""
-    camera_dirs = glob.glob('/storage/*/2*')  # Date directories like 2024-01-01
+    # Get camera directories (immediate subdirs of /storage)
+    camera_dirs = glob.glob('/storage/*/')
     if not camera_dirs:
+        print("No camera directories found in /storage/")
         return False
 
     current_time = datetime.now()
+    current_date = current_time.strftime('%Y-%m-%d')
     healthy_cameras = 0
 
-    for date_dir in camera_dirs:
-        # Only check today's recordings
-        date_str = os.path.basename(date_dir)
-        try:
-            dir_date = datetime.strptime(date_str, '%Y-%m-%d')
-            if dir_date.date() != current_time.date():
-                continue
-        except ValueError:
+    for camera_dir in camera_dirs:
+        camera_name = os.path.basename(camera_dir.rstrip('/'))
+
+        # Check today's directory for this camera
+        date_dir = os.path.join(camera_dir, current_date)
+        if not os.path.exists(date_dir):
             continue
 
-        # Check for recent files
+        # Check for recent files (modified in last 10 minutes)
         files = glob.glob(f"{date_dir}/*.mkv")
         for file_path in files:
             try:
@@ -59,6 +60,9 @@ def check_camera_recordings():
                     break
             except Exception:
                 continue
+
+    if healthy_cameras == 0:
+        print(f"No recent recordings found. Checked {len(camera_dirs)} cameras for date {current_date}")
 
     return healthy_cameras > 0
 
@@ -72,10 +76,14 @@ def check_health():
         ("Camera recordings", check_camera_recordings)
     ]
 
+    failed_checks = []
     for check_name, check_func in checks:
         if not check_func():
+            failed_checks.append(check_name)
             print(f"Health check failed: {check_name}")
-            return False
+
+    if failed_checks:
+        return False
 
     return True
 
